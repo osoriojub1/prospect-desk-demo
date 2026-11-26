@@ -1,0 +1,98 @@
+{
+  "name": "Prospect Desk - System Logs",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        176
+      ],
+      "id": "32a9bf61-1e5e-43e0-b4ed-c5e014a52a49",
+      "name": "Workflow Error"
+    },
+    {
+      "parameters": {
+        "jsCode": "const failure = $input.first().json;\nconst occurred = Number(failure.trigger?.error?.timestamp);\nreturn [{ json: {\n  edgeUrl: '{{PROSPECT_DESK_SUPABASE_URL}}/functions/v1/outreach',\n  workflow: failure.workflow?.name ?? '',\n  executionId: failure.execution?.id != null ? String(failure.execution.id) : null,\n  occurredAt: Number.isFinite(occurred) && occurred > 0 ? new Date(occurred).toISOString() : new Date().toISOString(),\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        176
+      ],
+      "id": "81f1afe9-62f0-4111-87cd-9d36d594a79b",
+      "name": "Workflow settings"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'report_error', workflow: $json.workflow, executionId: $json.executionId, occurredAt: $json.occurredAt }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        176
+      ],
+      "id": "34941896-4506-4f7c-872e-831f837d6acd",
+      "name": "Record Workflow Failure",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## System Logs\nAttach your `x-outreach-key` Header Auth to **Record Workflow Failure**. Select **Prospect Desk - System Logs** under Error Workflow in each Prospect Desk business workflow's settings.",
+        "width": 600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -128
+      ],
+      "id": "83acc3c4-1602-4bac-99c2-7cb639efd211",
+      "name": "System Logs setup"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Workflow settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow settings": {
+      "main": [
+        [
+          {
+            "node": "Record Workflow Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

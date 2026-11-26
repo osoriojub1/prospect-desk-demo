@@ -1,0 +1,842 @@
+{
+  "name": "Prospect Desk - Lead discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospect-desk-lead-research",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -512,
+        176
+      ],
+      "id": "e2118666-c128-474f-9d7a-187b62bbf281",
+      "name": "Lead research webhook",
+      "webhookId": "90f7fc12-78d8-4a46-8d12-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const runId = $json.body?.runId;\nif (typeof runId !== 'string' || !/^[0-9a-f-]{36}$/i.test(runId)) throw new Error('Missing research run ID');\n\nreturn [{ json: {\n  runId,\n  executionId: String($execution.id),\n  edgeUrl: '{{PROSPECT_DESK_SUPABASE_URL}}/functions/v1/lead-research',\n  agentUrl: 'https://api.firecrawl.dev/v2/agent',\n  pollSeconds: 20,\n  deadline: Date.now() + 12 * 60 * 1000,\n  creditCap: 80,\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        176
+      ],
+      "id": "d0afef4a-0e8a-4e21-9b1d-50baee18a084",
+      "name": "Workflow settings"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'claim', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        176
+      ],
+      "id": "145d422e-26d7-4b5c-a0ce-c439654e2ebe",
+      "name": "Claim run",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000005",
+              "leftValue": "={{ $json.claimed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        144,
+        176
+      ],
+      "id": "4a3ad95d-9502-46d3-838f-f9460ee673f9",
+      "name": "Run claimed?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { criteria, providerJobId } = $json;\nconst { creditCap } = $('Workflow settings').first().json;\nconst lines = (value) => value.split('\\n').map((line) => line.trim()).filter(Boolean);\nconst excludedDomains = lines(criteria.excludedDomains);\nconst excludedKeywords = lines(criteria.excludedKeywords);\nconst hasExclusions = criteria.exclusions.length > 0 || excludedDomains.length > 0 || excludedKeywords.length > 0;\nconst reserve = hasExclusions ? Math.min(3, criteria.limit, Math.max(0, 50 - criteria.limit)) : 0;\nconst legacySignals = [...criteria.signals, ...lines(criteria.customSignals)];\nconst prioritizeLegacy = criteria.signalRule === 'Prioritize matches';\nconst requiredSignals = criteria.requiredSignals == null ? (prioritizeLegacy ? [] : legacySignals) : lines(criteria.requiredSignals);\nconst preferredSignals = criteria.preferredSignals == null ? (prioritizeLegacy ? legacySignals : []) : lines(criteria.preferredSignals);\nconst requiredSignalMode = criteria.requiredSignalMode ?? (criteria.signalRule === 'Require any signal' ? 'any' : 'all');\n\nconst quote = {\n  type: 'object',\n  properties: { url: { type: 'string' }, excerpt: { type: 'string' } },\n  required: ['url', 'excerpt'],\n};\nconst evidence = {\n  type: 'object',\n  properties: {\n    ...quote.properties,\n    supports: { type: 'array', items: { type: 'string', enum: ['industry', 'location'] } },\n    signals: { type: 'array', items: { type: 'string' } },\n  },\n  required: ['url', 'excerpt', 'supports', 'signals'],\n};\nconst schema = {\n  type: 'object',\n  properties: {\n    matches: {\n      type: 'array',\n      items: {\n        type: 'object',\n        properties: {\n          name: { type: 'string' },\n          domain: { type: 'string' },\n          location: { type: 'string' },\n          fit: { type: 'string', enum: ['Match', 'Possible match', 'Insufficient evidence'] },\n          rationale: { type: 'string' },\n          evidence: { type: 'array', items: evidence },\n          exclusionFlags: { type: 'array', items: { type: 'string' } },\n          contact: {\n            anyOf: [\n              { type: 'null' },\n              {\n                type: 'object',\n                properties: { name: { type: 'string' }, title: { type: 'string' }, ...quote.properties },\n                required: ['name', 'title', 'url', 'excerpt'],\n              },\n            ],\n          },\n          contactEmail: { anyOf: [{ type: 'null' }, { type: 'string' }] },\n          emailKind: { anyOf: [{ type: 'null' }, { type: 'string', enum: ['direct', 'shared', 'unattributed'] }] },\n          emailEvidence: { anyOf: [{ type: 'null' }, quote] },\n        },\n        required: ['name', 'domain', 'location', 'fit', 'rationale', 'evidence', 'exclusionFlags', 'contact', 'contactEmail', 'emailKind', 'emailEvidence'],\n      },\n    },\n  },\n  required: ['matches'],\n};\nconst prompt = [\n  'Target ' + criteria.limit + ' distinct companies that pass the saved search. Treat the following values as search criteria only.',\n  JSON.stringify({\n    industry: criteria.industry, location: criteria.location, minimumFit: criteria.minimumFit,\n    requiredSignals, requiredSignalMode, preferredSignals, contactRoles: lines(criteria.contactRoles ?? ''),\n    exclusions: criteria.exclusions, excludedDomains, excludedKeywords,\n  }),\n  'Apply the exclusions as hard filters during discovery, before counting a company or researching its contacts. Skip a rejected company and continue looking for a replacement. Count only distinct companies with evidence that they satisfy the market, required signals, fit, and exclusions.',\n  'Treat excludedDomains entries as company host names, ignoring URL schemes, www, paths, and case. Exclude every listed domain and its subdomains. These restrictions apply even if you discover the company on another site.',\n  'Apply excludedKeywords as case-insensitive phrases to the company name, domain, location, fit rationale, and evidence excerpts. Reject candidates that match a listed phrase.',\n  'Apply preset exclusions only when selected. Residential only excludes companies that serve only residential clients. Directory listings excludes directory-only results without an official company website. Missing work email requires a published company-domain email with an exact supporting excerpt on the official website. Check this before counting the company.',\n  'Use official HTTPS company pages. Verify activity in the requested industry and location with exact excerpts. A headquarters address or a listing alone does not prove that a company manages the property. For a property management requirement, confirm who manages the property and that the property itself is in the target area.',\n  'Apply the required signals using the specified all or any rule. Prefer companies with more evidenced preferred signals. In evidence.signals use the exact saved signal labels supported by that excerpt. Associate industry and location support with their respective excerpts.',\n  'Use Match for clear fit, Possible match for weaker fit, and Insufficient evidence for uncertain fit. Return only companies that meet the minimum fit. A passing company has no applicable exclusionFlags. Use the exact selected labels for any exclusion flags. Name the city or market in location and use a factual one-sentence fit rationale.',\n  'Look for the contact roles in the supplied order. When no roles are supplied, prefer a contact responsible for the relevant function, then a founder or CEO. Cite an official team, leadership, or contact page with the full name and published title. A qualified company can have a null contact.',\n  'For a published company work email, quote its exact spelling from its official company page. Use direct only when the same excerpt explicitly ties the address to the named contact. Use shared for company, team, and department inboxes. Use unattributed for a published work email without a clear owner. Return null for all email fields when there is no source.',\n  reserve\n    ? 'After finding ' + criteria.limit + ' verified matches, include up to ' + reserve + ' additional verified alternatives if readily available within the same budget. Return at most ' + (criteria.limit + reserve) + ' candidates total. Every candidate, including a reserve, must pass the same rules.'\n    : 'Return at most ' + criteria.limit + ' verified matches.',\n  'Return fewer only if you cannot verify enough eligible companies within the available budget. Return an empty matches array when none qualify. Use only sourced facts and perform research only.',\n].join('\\n');\n\nreturn [{ json: { criteria, providerJobId, agentRequest: { prompt, schema, maxCredits: creditCap, mode: 'extract' } } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        96
+      ],
+      "id": "9ab98e21-7504-413a-b60b-64c7764df8f6",
+      "name": "Prepare search"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000008",
+              "leftValue": "={{ Boolean($json.providerJobId) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        592,
+        96
+      ],
+      "id": "fcac685a-93d6-4bda-8530-9c65634ebcc9",
+      "name": "Resume Agent job?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.agentUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.agentRequest }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        816,
+        224
+      ],
+      "id": "3f453dc4-ba16-4b47-9c00-82b177badf46",
+      "name": "Start Firecrawl Agent",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { statusCode, body } = $json;\nconst providerJobId = statusCode >= 200 && statusCode < 300 && body?.success === true &&\n  typeof body.id === 'string' && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : null;\nreturn [{ json: { providerJobId, failureCode: providerJobId ? null : 'firecrawl_start' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        224
+      ],
+      "id": "07b73368-494d-4bcc-9649-9f7c20186c77",
+      "name": "Read Agent job ID"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000012",
+              "leftValue": "={{ Boolean($json.providerJobId) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1248,
+        224
+      ],
+      "id": "169105ad-bd7c-4f01-974b-0a4a06c76396",
+      "name": "Agent accepted?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'report', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId, status: 'researching', providerJobId: $json.providerJobId }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1456,
+        80
+      ],
+      "id": "f8d9067b-112d-485c-8dfa-0ffdf467ab80",
+      "name": "Record Agent job",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Workflow settings').first().json.agentUrl + '/' + encodeURIComponent($('Record Agent job').first().json.providerJobId) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        80
+      ],
+      "id": "a11e4a03-8170-453b-8319-fcea6fa54112",
+      "name": "Check Firecrawl Agent",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { statusCode, body } = $json;\nconst { deadline } = $('Workflow settings').first().json;\nconst responseOk = statusCode >= 200 && statusCode < 300;\nconst status = responseOk ? body?.status : null;\nconst polled = ['processing', 'completed', 'failed'].includes(status);\n\nlet next = 'fail';\nlet failureCode = 'firecrawl_status';\nif (status === 'completed' && body.success === true) {\n  next = 'validate';\n  failureCode = null;\n} else if (status === 'failed') {\n  failureCode = body.stopReason === 'credit_limit_reached' ? 'firecrawl_credit_limit' : 'firecrawl_failed';\n} else if (status === 'processing' && Date.now() >= deadline) {\n  failureCode = 'firecrawl_timeout';\n} else if (Date.now() < deadline && (status === 'processing' || statusCode === 429 || statusCode >= 500 || statusCode == null)) {\n  next = 'poll';\n  failureCode = null;\n}\nreturn [{ json: { next, polled, failureCode, data: next === 'validate' ? body.data : null }, pairedItem: { item: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        80
+      ],
+      "id": "2469ae89-79e5-4f8a-8597-844ebec81607",
+      "name": "Read Agent status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000017",
+              "leftValue": "={{ $json.next === 'validate' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2112,
+        80
+      ],
+      "id": "e57c5775-0570-438f-9076-2f8231f4fc28",
+      "name": "Agent completed?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000019",
+              "leftValue": "={{ $json.next === 'poll' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2336,
+        272
+      ],
+      "id": "c6c95c1e-9816-41d7-9d79-d4785064f6dc",
+      "name": "Keep checking?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'report', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId, status: 'researching', polled: $json.polled === true }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2576,
+        192
+      ],
+      "id": "e5a1ac24-9671-40b3-b374-ed2e25858052",
+      "name": "Record status check",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('Workflow settings').first().json.pollSeconds }}"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2800,
+        272
+      ],
+      "id": "0269718a-845b-4ea5-802b-dc26602b8d0b",
+      "name": "Wait before status check",
+      "webhookId": "90f7fc12-78d8-4a46-8d12-000000000022"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'report', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId, status: 'validating', polled: true }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2336,
+        0
+      ],
+      "id": "2c46df74-e924-428b-aa77-c57bd759559d",
+      "name": "Mark results checking",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const { data } = $('Read Agent status').item.json;\nconst { criteria } = $('Prepare search').first().json;\nif (!Array.isArray(data?.matches)) return [{ json: { failureCode: 'invalid_results', matches: null } }];\n\nconst text = (value) => typeof value === 'string' ? value.trim() : '';\nconst comparable = (value) => text(value).toLowerCase().replace(/[\\s’']+/g, ' ').trim();\nconst lines = (value) => value.split('\\n').map(text).filter(Boolean);\nconst domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$/i;\nconst domainOf = (value) => text(value).toLowerCase().replace(/^https?:\\/\\//, '').replace(/^www\\./, '').split(/[:/?#]/, 1)[0].replace(/\\.$/, '');\nconst belongsTo = (value, domain) => value === domain || value.endsWith('.' + domain);\n// Avison Young's U.S. reports and contact pages publish @avisonyoung.com work addresses.\nconst verifiedCompanyDomains = [['avisonyoung.com', 'avisonyoung.us']];\nconst companyDomains = (domain) => verifiedCompanyDomains.find(\n  (group) => group.some((host) => belongsTo(domain, host)),\n) ?? [domain];\nconst isCompanyDomain = (host, company) => companyDomains(company).some((domain) => belongsTo(host, domain));\nconst excludedDomains = lines(criteria.excludedDomains).map(domainOf).filter(Boolean);\nconst excludedTerms = lines(criteria.excludedKeywords).map(comparable);\nconst excludedFlags = new Set(criteria.exclusions.map(comparable));\nconst legacySignals = [...criteria.signals, ...lines(criteria.customSignals)];\nconst prioritizeLegacy = criteria.signalRule === 'Prioritize matches';\nconst requiredSignals = criteria.requiredSignals == null ? (prioritizeLegacy ? [] : legacySignals) : lines(criteria.requiredSignals);\nconst preferredSignals = criteria.preferredSignals == null ? (prioritizeLegacy ? legacySignals : []) : lines(criteria.preferredSignals);\nconst requiredSignalMode = criteria.requiredSignalMode ?? (criteria.signalRule === 'Require any signal' ? 'any' : 'all');\nconst unique = (values) => [...new Map(values.map((signal) => [comparable(signal), signal])).values()];\nconst mandatory = unique(requiredSignals);\nconst preferred = unique(preferredSignals);\nconst signals = unique([...mandatory, ...preferred]);\nconst preferredLabels = new Set(preferred.map(comparable));\nconst fitRank = new Map([['Insufficient evidence', 0], ['Possible match', 1], ['Match', 2]]);\nconst minimum = fitRank.get(criteria.minimumFit) ?? 0;\n\nfunction sourceExcerpt(source, domain) {\n  const excerpt = text(source?.excerpt);\n  const url = text(source?.url);\n  if (!excerpt || excerpt.length > 1000 || url.length > 2000 || /[\\\\\\s\\u0000-\\u001f\\u007f]/.test(url)) return null;\n\n  // The n8n Code node does not provide the URL constructor.\n  const authority = /^https:\\/\\/([a-z0-9.-]+)(?::([0-9]{1,5}))?(?=[/?#]|$)/i.exec(url);\n  if (!authority || (authority[2] && Number(authority[2]) > 65535)) return null;\n  const sourceDomain = domainOf(authority[1]);\n  if (!domainPattern.test(sourceDomain) || !isCompanyDomain(sourceDomain, domain)) return null;\n\n  return { url, excerpt };\n}\n\nfunction sourcedContact(raw, domain) {\n  const source = sourceExcerpt(raw, domain);\n  const name = text(raw?.name);\n  const title = text(raw?.title);\n  if (!source || !name || !title || name.length > 150 || title.length > 150) return null;\n  const quote = comparable(source.excerpt);\n  if (!quote.includes(comparable(name)) || !quote.includes(comparable(title))) return null;\n  return { name, title, ...source };\n}\n\nfunction sourcedEmail(raw, domain, contact) {\n  const email = text(raw.contactEmail).toLowerCase();\n  const proof = sourceExcerpt(raw.emailEvidence, domain);\n  if (!/^[^\\s@<>,;]+@[a-z0-9.-]+\\.[a-z]{2,}$/i.test(email) || email.length > 254 ||\n    !isCompanyDomain(domainOf(email.split('@')[1]), domain) || !proof) return null;\n  const quotedEmails = proof.excerpt.toLowerCase().match(/[a-z0-9.!#$%&'*+/=?^_\\x60{|}~-]+@[a-z0-9.-]+\\.[a-z]{2,}/g);\n  if (!quotedEmails?.includes(email)) return null;\n\n  const alias = email.split('@')[0].split('+')[0];\n  const shared = raw.emailKind === 'shared' ||\n    /^(admin|contact|enquiries|hello|info|inquiries|leasing|management|office|renewables|sales|service|support|team)$/.test(alias);\n  const direct = raw.emailKind === 'direct' && contact && comparable(proof.excerpt).includes(comparable(contact.name));\n  return { contactEmail: email, emailKind: shared ? 'shared' : direct ? 'direct' : 'unattributed', emailEvidence: proof };\n}\n\nconst matches = [];\nfor (const raw of data.matches) {\n  if (!raw || typeof raw !== 'object') continue;\n  const domain = domainOf(raw.domain);\n  const name = text(raw.name);\n  const location = text(raw.location);\n  const rationale = text(raw.rationale);\n  const rank = fitRank.get(raw.fit);\n  if (!domainPattern.test(domain) || domain.length > 253 || !name || name.length > 150 ||\n    !location || location.length > 120 || !rationale || rationale.length > 1000 || rank === undefined || rank < minimum) continue;\n  if (excludedDomains.some((excluded) => belongsTo(domain, excluded) ||\n    companyDomains(domain).some((host) => belongsTo(host, excluded)))) continue;\n  if (Array.isArray(raw.exclusionFlags) && raw.exclusionFlags.some((flag) => excludedFlags.has(comparable(flag)))) continue;\n\n  const supported = new Set();\n  const evidencedSignals = new Set();\n  const sources = new Map();\n  for (const candidate of Array.isArray(raw.evidence) ? raw.evidence : []) {\n    const source = sourceExcerpt(candidate, domain);\n    if (!source) continue;\n    sources.set(source.url + '\\n' + source.excerpt, source);\n    if (Array.isArray(candidate.supports)) candidate.supports.forEach((value) => supported.add(value));\n    if (Array.isArray(candidate.signals)) candidate.signals.forEach((value) => evidencedSignals.add(comparable(value)));\n  }\n  if (!supported.has('industry') || !supported.has('location')) continue;\n  const evidence = [...sources.values()];\n  const candidateText = comparable([name, domain, location, rationale, ...evidence.map((source) => source.excerpt)].join(' '));\n  if (excludedTerms.some((term) => candidateText.includes(term))) continue;\n\n  const meetsRequired = (signal) => evidencedSignals.has(comparable(signal));\n  if (mandatory.length && !(requiredSignalMode === 'any' ? mandatory.some(meetsRequired) : mandatory.every(meetsRequired))) continue;\n  const matchedSignals = signals.filter(meetsRequired);\n  const contact = sourcedContact(raw.contact, domain);\n  const inbox = sourcedEmail(raw, domain, contact);\n  if (excludedFlags.has('missing work email') && !inbox) continue;\n\n  matches.push({\n    domain, name, location, rationale, fit: raw.fit, evidence, matchedSignals, contact,\n    contactEmail: null, ...inbox,\n  });\n}\nconst score = ({ matchedSignals }) => matchedSignals.filter((signal) => preferredLabels.has(comparable(signal))).length;\nmatches.sort((a, b) => score(b) - score(a) || fitRank.get(b.fit) - fitRank.get(a.fit) || a.name.localeCompare(b.name));\nconst selected = [];\nconst domains = new Set();\nfor (const prospect of matches) {\n  const company = companyDomains(prospect.domain)[0];\n  if (domains.has(company)) continue;\n  domains.add(company);\n  selected.push(prospect);\n  if (selected.length === criteria.limit) break;\n}\nreturn [{ json: { matches: selected } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        0
+      ],
+      "id": "5f65aa1b-5a5a-45eb-af9e-1a3444b9060e",
+      "name": "Qualify and deduplicate"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90f7fc12-78d8-4a46-8d12-000000000026",
+              "leftValue": "={{ Array.isArray($json.matches) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2768,
+        0
+      ],
+      "id": "7f8bb2cf-0079-4914-b1da-8699c77b3f41",
+      "name": "Results available?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'complete', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId, matches: $json.matches }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2992,
+        -80
+      ],
+      "id": "96e07a60-da89-4042-9eb2-61543c56f5ea",
+      "name": "Save results and complete",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { failureCode: 'save_failed' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        32
+      ],
+      "id": "57ce95b4-88cf-41e1-9866-80eb2d345337",
+      "name": "Save failure"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'report', runId: $('Workflow settings').first().json.runId, executionId: $('Workflow settings').first().json.executionId, status: 'failed', failureCode: $json.failureCode, polled: $json.polled === true }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3456,
+        464
+      ],
+      "id": "2194daaa-2582-4475-aec6-260a301b0840",
+      "name": "Record run failure",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'Lead research failed (' + $json.failureCode + ')' }}"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3680,
+        464
+      ],
+      "id": "4eaf31f6-b8c2-414c-adae-377f8db77d14",
+      "name": "Fail execution"
+    },
+    {
+      "parameters": {
+        "content": "## Prospect Desk\nSet the hosted Supabase URL in **Workflow settings**. Assign an `x-research-key` Header Auth credential to **Lead research webhook** and all Supabase HTTP Request nodes. Assign a separate `Authorization: Bearer …` Header Auth credential to both Firecrawl nodes. Save the production webhook URL in the Supabase Edge Function secret `N8N_LEAD_RESEARCH_WEBHOOK_URL`.",
+        "height": 230,
+        "width": 570
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -176
+      ],
+      "id": "53710a97-60c2-4a2a-90c4-de11c587da57",
+      "name": "Cloud credentials"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Lead research webhook": {
+      "main": [
+        [
+          {
+            "node": "Workflow settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow settings": {
+      "main": [
+        [
+          {
+            "node": "Claim run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim run": {
+      "main": [
+        [
+          {
+            "node": "Run claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run claimed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare search": {
+      "main": [
+        [
+          {
+            "node": "Resume Agent job?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Agent job?": {
+      "main": [
+        [
+          {
+            "node": "Record Agent job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Firecrawl Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Firecrawl Agent": {
+      "main": [
+        [
+          {
+            "node": "Read Agent job ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agent job ID": {
+      "main": [
+        [
+          {
+            "node": "Agent accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent accepted?": {
+      "main": [
+        [
+          {
+            "node": "Record Agent job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record run failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Agent job": {
+      "main": [
+        [
+          {
+            "node": "Check Firecrawl Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Firecrawl Agent": {
+      "main": [
+        [
+          {
+            "node": "Read Agent status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agent status": {
+      "main": [
+        [
+          {
+            "node": "Agent completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent completed?": {
+      "main": [
+        [
+          {
+            "node": "Mark results checking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Keep checking?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep checking?": {
+      "main": [
+        [
+          {
+            "node": "Record status check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record run failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record status check": {
+      "main": [
+        [
+          {
+            "node": "Wait before status check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before status check": {
+      "main": [
+        [
+          {
+            "node": "Check Firecrawl Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark results checking": {
+      "main": [
+        [
+          {
+            "node": "Qualify and deduplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify and deduplicate": {
+      "main": [
+        [
+          {
+            "node": "Results available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Results available?": {
+      "main": [
+        [
+          {
+            "node": "Save results and complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record run failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save results and complete": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Save failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save failure": {
+      "main": [
+        [
+          {
+            "node": "Record run failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record run failure": {
+      "main": [
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

@@ -1,0 +1,391 @@
+{
+  "name": "Prospect Desk - Sync Airtable leads",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        112
+      ],
+      "id": "fb7f7f3e-8514-4b9c-a69e-54731f66cdd7",
+      "name": "Qualified reply received"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospect-desk-airtable-retry",
+        "authentication": "headerAuth",
+        "options": {
+          "responseCode": {
+            "values": {
+              "responseCode": "customCode",
+              "customCode": 202
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        304
+      ],
+      "id": "adf21922-9d95-4092-880f-b064287c398e",
+      "name": "Retry Airtable Sync",
+      "webhookId": "bcc9dfcb-5c3b-4803-a511-000000000050"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    edgeUrl: '{{PROSPECT_DESK_SUPABASE_URL}}/functions/v1/outreach',\n    retryFailed: $('Retry Airtable Sync').isExecuted,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        208
+      ],
+      "id": "0c08d519-2b9b-43dc-95ee-2fa4ff2e8ff2",
+      "name": "Airtable settings"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Airtable settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'claim_airtable_sync', pipeline: 'interested', executionId: String($execution.id), retryFailed: $json.retryFailed === true }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -112,
+        208
+      ],
+      "id": "cb8dfa77-7a71-471f-b454-482c11491d9d",
+      "name": "Claim Airtable Batch",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const { items } = $input.first().json;\nif (!Array.isArray(items) || items.some(lead => typeof lead?.email !== 'string' || !lead.email.trim())) {\n  throw new Error('Supabase did not return the interested lead payload.');\n}\n\n// Keep Stage in Airtable so the default applies on creation and updates preserve the pipeline.\nreturn items.map((lead) => {\n  const fields = { 'Lead ID': lead.prospectId, 'Company': lead.company, 'Email': lead.email };\n  if (lead.contact?.trim()) fields.Contact = lead.contact.trim();\n  if (lead.domain?.trim()) fields.Domain = lead.domain.trim();\n\n  const offer = lead.offer?.trim();\n  const research = lead.researchSummary?.trim();\n  const reply = lead.reply?.replace(/\\r\\n?/g, '\\n')\n    .split(/^[ \\t]*(?:On [\\s\\S]{1,300}? wrote:|[- ]+(?:Original Message|Forwarded message)[- ]+)[ \\t]*$/im)[0]\n    .split('\\n').filter(line => !/^\\s*>/.test(line)).join('\\n').trim();\n  const notes = [\n    offer && 'Outreach offer\\n' + offer,\n    research && 'Research\\n' + research,\n    reply && 'Qualifying reply\\n' + reply,\n  ].filter(Boolean);\n  if (notes.length) fields.Notes = notes.join('\\n\\n');\n\n  return { json: fields, pairedItem: { item: 0 } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        208
+      ],
+      "id": "e04745a5-b114-4714-bd00-842042b55298",
+      "name": "Prepare Airtable Upsert"
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "{{PROSPECT_DESK_AIRTABLE_BASE_ID}}"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "{{PROSPECT_DESK_AIRTABLE_TABLE_ID}}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Lead ID"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Stage",
+              "displayName": "Stage",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Interested",
+                  "value": "Interested"
+                },
+                {
+                  "name": "In conversation",
+                  "value": "In conversation"
+                },
+                {
+                  "name": "Proposal",
+                  "value": "Proposal"
+                },
+                {
+                  "name": "Won",
+                  "value": "Won"
+                },
+                {
+                  "name": "Lost",
+                  "value": "Lost"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Contact",
+              "displayName": "Contact",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        208
+      ],
+      "id": "f837ee4b-87bf-4a7d-adb3-7bffe44f16cc",
+      "name": "Upsert Airtable Leads",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { items } = $('Claim Airtable Batch').first(0, $runIndex).json;\nconst errorCodes = {\n  400: 'airtable_fields',\n  401: 'airtable_access',\n  403: 'airtable_access',\n  404: 'airtable_target',\n  422: 'airtable_fields',\n  429: 'airtable_rate_limit',\n};\nconst recordIds = new Map();\nconst errors = new Map();\nfor (const { json } of $input.all()) {\n  const leadId = json.fields?.['Lead ID'];\n  if (typeof leadId === 'string' && /^rec[A-Za-z0-9]{14}$/.test(json.id)) {\n    recordIds.set(leadId, json.id);\n  } else if (Number.isInteger(json.error?.context?.itemIndex)) {\n    errors.set(json.error.context.itemIndex, errorCodes[Number(json.error.httpCode)]);\n  }\n}\n\nreturn [{ json: { results: items.map(({ prospectId, revision }, index) => {\n  const recordId = recordIds.get(prospectId);\n  return { prospectId, revision, ...(recordId ? { recordId } : { errorCode: errors.get(index) ?? 'airtable_unconfirmed' }) };\n}) }, pairedItem: { item: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        208
+      ],
+      "id": "2f1f9441-8478-46dd-b7ee-59f7dcc2d256",
+      "name": "Read Airtable Result"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Airtable settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'record_airtable_sync', executionId: String($execution.id), results: $json.results }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        208
+      ],
+      "id": "b93268ec-b0d1-4770-8e2a-69514cdd1bc3",
+      "name": "Save Airtable Result",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Airtable sync\nQualified Gmail replies call this workflow. The outreach Edge Function calls **Retry Airtable Sync** to retry saved work.\n\nThe Airtable node targets **Prospect Desk → Leads** and matches on **Lead ID**. Move cards through Stage in the Pipeline board.",
+        "height": 215,
+        "width": 690
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -144
+      ],
+      "id": "9ac89c24-7bc3-4b04-b7d2-b9642b06b3c7",
+      "name": "Airtable setup"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Airtable settings": {
+      "main": [
+        [
+          {
+            "node": "Claim Airtable Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Airtable Batch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Airtable Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Airtable Upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Airtable Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Airtable Leads": {
+      "main": [
+        [
+          {
+            "node": "Read Airtable Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Airtable Result": {
+      "main": [
+        [
+          {
+            "node": "Save Airtable Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified reply received": {
+      "main": [
+        [
+          {
+            "node": "Airtable settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Airtable Sync": {
+      "main": [
+        [
+          {
+            "node": "Airtable settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Airtable Result": {
+      "main": [
+        [
+          {
+            "node": "Claim Airtable Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

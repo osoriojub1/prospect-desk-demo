@@ -1,0 +1,9 @@
+project_id = "prospect-desk"
+
+[functions.lead-research]
+# The function verifies Supabase user sessions and the n8n header credential.
+verify_jwt = false
+
+[functions.outreach]
+# The function verifies the demo user's session or the dedicated outreach header credential.
+verify_jwt = false

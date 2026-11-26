@@ -1,0 +1,13 @@
+/node_modules/
+/.next/
+/out/
+/output/
+/.playwright-cli/
+*.tsbuildinfo
+*.log
+next-env.d.ts
+.env*
+!.env.example
+/supabase/.temp/
+/docs/**/*.md
+/n8n/workflows.env

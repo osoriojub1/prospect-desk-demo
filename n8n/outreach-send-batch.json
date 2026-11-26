@@ -1,0 +1,379 @@
+{
+  "name": "Prospect Desk - Send outreach",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospect-desk-outreach-send",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -512,
+        128
+      ],
+      "id": "b68d0c62-e75f-4c9d-b71c-a13d58dcbed3",
+      "name": "Send Batch Webhook",
+      "webhookId": "bcc9dfcb-5c3b-4803-a511-000000000013"
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobId = $input.first().json.body?.jobId;\nif (typeof jobId !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(jobId)) throw new Error('Missing outreach job ID');\nreturn [{ json: {\n  jobId,\n  executionId: String($execution.id),\n  edgeUrl: '{{PROSPECT_DESK_SUPABASE_URL}}/functions/v1/outreach',\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        128
+      ],
+      "id": "f428ab64-f264-4dcb-a175-907c8d651aeb",
+      "name": "Workflow settings"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'claim_job', jobId: $('Workflow settings').first().json.jobId, executionId: $('Workflow settings').first().json.executionId, kind: 'send' }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        128
+      ],
+      "id": "5929c196-c4ce-49ae-84cf-0b6bb89d7aa5",
+      "name": "Claim Send Batch",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $input.first().json;\nif (!batch.claimed || !Array.isArray(batch.items)) return [];\nreturn batch.items.map(item => ({ json: item, pairedItem: { item: 0 } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        128
+      ],
+      "id": "af22aa06-7a4b-4b24-97d0-d2c1d6b23ce7",
+      "name": "Load Send Items"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        368,
+        128
+      ],
+      "id": "d529208e-702e-41e4-8938-1365849056b9",
+      "name": "Loop Over Emails"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'finish_job', jobId: $('Workflow settings').first().json.jobId, executionId: $('Workflow settings').first().json.executionId }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        -48
+      ],
+      "id": "3ebd632f-75ac-4b15-8ff6-6d1d075b5704",
+      "name": "Finish Send Batch",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'claim_send', jobId: $('Workflow settings').first().json.jobId, executionId: $('Workflow settings').first().json.executionId, sendItemId: $json.sendItemId }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        208
+      ],
+      "id": "a762a6b6-e37a-40a5-b288-2fc4bb15ee70",
+      "name": "Authorize Email",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bcc9dfcb-5c3b-4803-a511-000000000021",
+              "leftValue": "={{ $json.ready === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        816,
+        208
+      ],
+      "id": "18032ac2-b5e8-4bf8-8007-c3479b265c32",
+      "name": "Email Eligible?"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.address }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1024,
+        112
+      ],
+      "id": "2f786aaa-0642-46d5-ba06-dc23833c233d",
+      "name": "Send Approved Email",
+      "webhookId": "c02a5349-e73c-49df-86e0-7b78e7c6acb9",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst { sendItemId } = $('Authorize Email').itemMatching(0).json;\nconst okay = !response.error && typeof response.id === 'string' && response.id &&\n  typeof response.threadId === 'string' && response.threadId;\nconst status = Number(response.error?.httpCode ?? response.error?.statusCode ?? response.statusCode);\nconst definitiveRejection = [400, 401, 403, 404, 422, 429].includes(status);\n\nreturn [{ json: {\n  sendItemId,\n  outcome: okay ? 'sent' : definitiveRejection ? 'not_sent' : 'uncertain',\n  messageId: okay ? response.id : null,\n  threadId: okay ? response.threadId : null,\n}, pairedItem: { item: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        112
+      ],
+      "id": "4b5adb2d-30f7-46ee-92a6-085b6f1c8478",
+      "name": "Read Gmail Result"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow settings').first().json.edgeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ action: 'record_send', jobId: $('Workflow settings').first().json.jobId, executionId: $('Workflow settings').first().json.executionId, ...$json }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1472,
+        112
+      ],
+      "id": "2f9ad287-7bc3-46cd-809d-c1d3b8caa55d",
+      "name": "Save Email Outcome",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Send approved outreach\nAttach your `x-outreach-key` Header Auth to the webhook and Supabase HTTP Request nodes. Attach the outreach Gmail account to **Send Approved Email** and use the same Gmail account in the reply workflow.",
+        "width": 600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -512,
+        -176
+      ],
+      "id": "4fbdb9e5-457c-472c-a6d6-d79473805827",
+      "name": "Send setup"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Send Batch Webhook": {
+      "main": [
+        [
+          {
+            "node": "Workflow settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow settings": {
+      "main": [
+        [
+          {
+            "node": "Claim Send Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Send Batch": {
+      "main": [
+        [
+          {
+            "node": "Load Send Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Send Items": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Emails": {
+      "main": [
+        [
+          {
+            "node": "Finish Send Batch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Authorize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorize Email": {
+      "main": [
+        [
+          {
+            "node": "Email Eligible?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Eligible?": {
+      "main": [
+        [
+          {
+            "node": "Send Approved Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approved Email": {
+      "main": [
+        [
+          {
+            "node": "Read Gmail Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Gmail Result": {
+      "main": [
+        [
+          {
+            "node": "Save Email Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Email Outcome": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}
