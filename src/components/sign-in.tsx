@@ -20,7 +20,7 @@ export function SignIn() {
 
   useEffect(() => {
     if (!researchConfigured) {
-      router.replace(routes.search);
+      router.replace(routes.dashboard);
     } else if (signedIn) {
       const next = new URLSearchParams(window.location.search).get("next");
       router.replace(workspaceDestination(next));

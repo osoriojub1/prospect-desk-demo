@@ -13,6 +13,13 @@ export const signalRules = ["Prioritize matches", "Require any signal", "Require
 export const minimumFits = ["Any fit", "Possible match", "Match"] as const;
 
 export type Stage = (typeof stages)[number];
+export const contactedStages: readonly Stage[] = ["Contacted", "Replied"];
+export const outreachStatusLabels: Record<Stage, string> = {
+  Generated: "Not contacted",
+  Contacted: "Contacted",
+  Replied: "Replied",
+};
+
 export type Triage = (typeof triageOptions)[number];
 export type Fit = "Match" | "Possible match" | "Insufficient evidence";
 export type BuyingSignal = (typeof buyingSignals)[number];

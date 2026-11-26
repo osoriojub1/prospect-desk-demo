@@ -1,7 +1,7 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { EmailKind, OutreachDraft, Prospect, SourceEvidence } from "./prospects";
-import { readResearchProspects, researchClient } from "./research";
-import type { CampaignFilters } from "./workspace";
+import { readCompletedResearchRuns, readResearchProspects, researchClient } from "./research";
+import type { CampaignFilters, CampaignInfo } from "./workspace";
 
 export const campaignLimit = 50;
 
@@ -44,7 +44,6 @@ export type DraftRecipient = DraftState & {
   } | null;
 };
 
-type CampaignInfo = { id: string; name: string; created_at: string };
 export type DraftCampaign = CampaignInfo & { outreach_recipients: DraftRecipient[] };
 export type DraftCampaignSummary = CampaignInfo & { outreach_recipients: DraftState[] };
 export type DraftReviewSnapshot = { campaign: DraftCampaign | null } | { campaigns: DraftCampaignSummary[] };
@@ -93,12 +92,17 @@ export function markLogsRead() {
 }
 
 export async function readCampaignAudience(runId: string | null) {
-  const [prospects, reservations] = await Promise.all([
+  const client = researchClient();
+  const [prospects, reservations, searches] = await Promise.all([
     readResearchProspects(runId),
-    researchClient().from("outreach_recipients").select("prospect_id").is("released_at", null),
+    client.from("outreach_recipients").select("prospect_id,outreach_campaigns!inner(id,name,created_at)")
+      .is("released_at", null).returns<{ prospect_id: string; outreach_campaigns: CampaignInfo }[]>(),
+    readCompletedResearchRuns(),
   ]);
   if (reservations.error) throw new Error("Could not check campaign eligibility. Try again.");
-  return { prospects, reserved: new Set<string>(reservations.data.map((row) => row.prospect_id)) };
+
+  const campaignByProspect = new Map(reservations.data.map((row) => [row.prospect_id, row.outreach_campaigns]));
+  return { prospects, campaignByProspect, searches };
 }
 
 export async function readDraftReview(campaignId: string | null): Promise<DraftReviewSnapshot> {
@@ -120,9 +124,9 @@ export async function readDraftReview(campaignId: string | null): Promise<DraftR
   return { campaigns: data };
 }
 
-type OutreachTable = "outreach_recipients" | "outreach_campaigns" | "outreach_send_items" | "outreach_replies" | "system_log_events" | "airtable_syncs";
+type WorkspaceTable = "research_runs" | "outreach_recipients" | "outreach_campaigns" | "outreach_send_items" | "outreach_replies" | "system_log_events" | "airtable_syncs";
 
-export function watchOutreach(ownerId: string, tables: readonly OutreachTable[], refresh: () => void, onConnection?: (connected: boolean) => void) {
+export function watchOutreach(ownerId: string, tables: readonly WorkspaceTable[], refresh: () => void, onConnection?: (connected: boolean) => void) {
   const client = researchClient();
   const filter = "owner_id=eq." + ownerId;
   let connected = false;
@@ -159,6 +163,7 @@ export type ActivityCampaign = CampaignInfo & {
   notSent: number;
   uncertain: number;
   replies: number;
+  repliedEmails: number;
   unread: number;
 };
 
@@ -177,15 +182,17 @@ export async function readActivityCampaigns(): Promise<ActivityCampaign[]> {
     const sends = outreach_jobs.flatMap((job) => job.outreach_send_items);
     if (!sends.length) return [];
     const replies = sends.flatMap((send) => send.outreach_replies);
+    const sent = sends.filter(({ status }) => status === "sent");
     return [{
       ...campaign,
       emailCount: sends.length,
-      sent: sends.filter(({ status }) => status === "sent").length,
+      sent: sent.length,
       queued: sends.filter(({ status }) => status === "queued").length,
       sending: sends.filter(({ status }) => status === "sending").length,
       notSent: sends.filter(({ status }) => status === "not_sent").length,
       uncertain: sends.filter(({ status }) => status === "uncertain").length,
       replies: replies.length,
+      repliedEmails: sent.filter(({ outreach_replies }) => outreach_replies.length > 0).length,
       unread: replies.filter(({ read_at }) => !read_at).length,
     }];
   });

@@ -4,7 +4,6 @@
 
 When the user points out a project preference, record it in this file as part of the current task. Add it under the relevant heading or update the existing rule when the user refines it. Apply the saved rules to future work in Lead Gen.
 
-- Check incoming requests against the active project before starting work. If a request appears meant for a different project, flag the mismatch before looking up that project's files or backlog. Proceed when the user explicitly asks to switch projects or work across them.
 - Use the project owner's verified personal GitHub account for Prospect Desk. Set the commit identity for this repository only.
 - Use concise, product-focused commit subjects.
 - Use browser skills for browser work. Keep native desktop mouse and keyboard control with the user.
@@ -16,20 +15,24 @@ When the user points out a project preference, record it in this file as part of
 - Design and verify this web app for desktop use only.
 - Use Modern Web Guidance when building or revising the web UI.
 - Use a persistent, collapsible sidebar with actions grouped in workflow order. Keep the navigation available as an icon rail when collapsed.
+- Open Dashboard by default. Summarize prospect totals, recent searches, and unread updates, with links to the pages that show the details. Chart outreach progress and reply rates by campaign. For each campaign, divide confirmed sends with at least one reply by all confirmed sends.
 - Give campaign setup, draft review, email activity, and system logs separate pages. Put back navigation on the left.
 - Show concurrent lead searches in a live run list. Open an individual run for its progress and saved criteria. Adjust Search should prefill an editable copy of that run's full configuration.
+- Show counts from saved prospects in search activity. Hide completed searches whose results have all been cleared.
 - Show saved workspace records and use empty states when there are no records to display.
 - Render scraped source evidence as Markdown in the prospect preview and source dialog.
 - Show a compact source summary by default in Draft Review. Open the full evidence through **View full sources**.
 
 ## Automation workflow
 
-- Keep Prospect Review read-only. Show qualification, evidence, and outcomes there.
+- Keep Prospects read-only. Show qualification and source evidence in the details. The Contacted filter and count include prospects who replied. Put Do not contact alongside the other prospect filters with the same button style and count.
 - Personalize lead-generation controls around the client's target buyers, the evidence that makes them a fit, and the people the operator wants to reach.
 - Use free-text fields for industry and location in Search Setup. Start both fields and Custom signals blank. Omit Existing clients from the preset exclusions.
+- Define Search Setup presets in code. Applying a preset fills editable criteria for the current search.
 - Let users configure lead signals and exclusions. Automate research and qualification, and save leads for campaigns. Extract the available founder, CEO, or contact name and title with supporting evidence. Use that contact to personalize outreach.
 - Apply exclusions during Firecrawl discovery before counting companies toward the requested lead total. Have the same search replace excluded candidates within its budget, then save up to the requested number after n8n validates the evidence.
 - Let campaigns filter saved leads by business category and location. Automatically exclude previously contacted leads, replies, and opt-outs from draft generation.
+- Keep completed searches with saved prospects selectable in campaign setup. Show which prospects can receive new drafts and link to their existing campaigns when drafts are already saved.
 - Let users name each campaign, see which companies match, and select its recipients. Generate drafts only for the selected eligible companies.
 - List the named campaigns in Draft Review. Show the business and contact without an avatar or recipient line. Let users regenerate the selected draft in place and explicitly approve each draft. Editing or regenerating clears that draft's approval. Send only approved drafts in one batch after confirmation.
 - Keep skipped drafts in their campaign history and make their uncontacted prospects eligible for other campaigns. Carry that rule into the backend.
@@ -57,6 +60,7 @@ When the user points out a project preference, record it in this file as part of
 ## Client demo
 
 - Use a dedicated email and password sign-in page for the hosted demo. Create demo users in the Supabase Auth dashboard and direct them to the workspace after sign-in.
+- Keep an alternate industry preset for demo searches when the original search has already been used.
 
 Use available client research from the local planning notes to ground Firecrawl discovery, evidence review, and the CRM handoff.
 
@@ -66,6 +70,7 @@ Use available client research from the local planning notes to ground Firecrawl 
 - Skip redundant headings, subtitles, and explanations that repeat what the controls already say. Put developer-only context in a nearby code comment.
 - Keep accessible names and essential warnings, errors, and instructions.
 - Use language a nontechnical sales operator can act on. Use visible status indicators and purposeful motion to communicate the progress and outcome of automated work.
+- Name Lead generation pages by what users do or see there. Use plain-language outreach statuses consistently in the prospect filters, table, and details.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

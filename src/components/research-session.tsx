@@ -9,14 +9,12 @@ import { useOutreachSnapshot } from "./use-outreach-snapshot";
 const ResearchSession = createContext<{ session: Session | null; loading: boolean }>({ session: null, loading: false });
 const WorkspaceEvents = createContext<{
   events?: SystemLog[];
-  unreadEvents: number;
-  unreadReplies: number;
+  unreadEvents?: number;
+  unreadReplies?: number;
   error: string;
   refreshLogs: () => Promise<void>;
   refreshReplies: () => Promise<void>;
 }>({
-  unreadEvents: 0,
-  unreadReplies: 0,
   error: "",
   refreshLogs: async () => {},
   refreshReplies: async () => {},
@@ -49,8 +47,8 @@ function WorkspaceEventProvider({ children, ownerId }: { children: ReactNode; ow
 
   return <WorkspaceEvents.Provider value={{
     events: logs.snapshot?.events,
-    unreadEvents: logs.snapshot?.unread ?? 0,
-    unreadReplies: replies.snapshot ?? 0,
+    unreadEvents: logs.snapshot?.unread,
+    unreadReplies: replies.snapshot,
     error: logs.error,
     refreshLogs: logs.refresh,
     refreshReplies: replies.refresh,

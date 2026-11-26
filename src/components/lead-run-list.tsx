@@ -4,7 +4,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { isActiveResearchRun, readResearchRuns, researchRunStatusLabel, watchResearchRuns } from "../lib/research";
-import { researchHref, routes } from "../lib/routes";
+import { leadGenerationLabels, researchHref, routes } from "../lib/routes";
 import { AppErrorDialog } from "./app-error-dialog";
 
 const submittedTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -36,7 +36,7 @@ export function LeadRunList({ ownerId }: { ownerId: string }) {
       } catch (error) {
         if (!current || request !== latestRequest) return;
         setFailedPage(page);
-        setError(error instanceof Error ? error.message : "Could not load lead runs.");
+        setError(error instanceof Error ? error.message : "Could not load searches.");
       }
     }
 
@@ -67,9 +67,9 @@ export function LeadRunList({ ownerId }: { ownerId: string }) {
         {visible?.runs.length ? (
           <div className="lead-runs-scroll" role="region" aria-labelledby="lead-runs-caption" tabIndex={0}>
             <table className="outreach-table lead-runs-table">
-              <caption id="lead-runs-caption" className="sr-only">Lead searches</caption>
+              <caption id="lead-runs-caption" className="sr-only">{leadGenerationLabels.runStatus}</caption>
               <thead>
-                <tr><th scope="col">Search</th><th scope="col">Status</th><th scope="col">Results</th><th scope="col">Submitted</th></tr>
+                <tr><th scope="col">Search</th><th scope="col">Status</th><th scope="col">Prospects</th><th scope="col">Submitted</th></tr>
               </thead>
               <tbody>
                 {visible.runs.map((run) => {
@@ -86,7 +86,7 @@ export function LeadRunList({ ownerId }: { ownerId: string }) {
                         </Link>
                       </th>
                       <td><span className="badge lead-run-badge" data-status={run.status}>{researchRunStatusLabel(run)}</span></td>
-                      <td>{run.status === "completed" ? run.result_count : "—"}</td>
+                      <td>{run.status === "completed" ? run.saved_result_count : "—"}</td>
                       <td><time dateTime={run.created_at}>{submitted}</time></td>
                     </tr>
                   );
@@ -96,16 +96,16 @@ export function LeadRunList({ ownerId }: { ownerId: string }) {
           </div>
         ) : (
           <div className="action-content lead-run-placeholder">
-            {visible ? <p>No lead searches yet.</p> : failedPage === page ? (
+            {visible ? <p>No searches yet.</p> : failedPage === page ? (
               <button className="button button-secondary" type="button" onClick={() => { setFailedPage(undefined); setAttempt((value) => value + 1); }}>Try again</button>
-            ) : <p role="status">Loading lead searches…</p>}
+            ) : <p role="status">Loading searches…</p>}
           </div>
         )}
 
         {showPages && (
           <footer className="list-footer">
             <span>Page {page + 1}</span>
-            <nav className="pagination" aria-label="Lead run pages">
+            <nav className="pagination" aria-label="Search pages">
               <button className="icon-button" type="button" aria-label="Previous page" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>
                 <ChevronLeft size={16} aria-hidden="true" />
               </button>
@@ -116,7 +116,7 @@ export function LeadRunList({ ownerId }: { ownerId: string }) {
           </footer>
         )}
       </div>
-      <AppErrorDialog title="Couldn’t load lead searches" message={error} onClose={() => setError("")}
+      <AppErrorDialog title="Couldn’t load searches" message={error} onClose={() => setError("")}
         onRetry={() => setAttempt((value) => value + 1)} />
     </div>
   );

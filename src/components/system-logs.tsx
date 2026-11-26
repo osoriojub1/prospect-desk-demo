@@ -14,7 +14,7 @@ function relatedPage(event: SystemLog) {
 }
 
 export function SystemLogs() {
-  const { events, unreadEvents, error, refreshLogs } = useWorkspaceEvents();
+  const { events, unreadEvents = 0, error, refreshLogs } = useWorkspaceEvents();
   const [dismissedError, setDismissedError] = useState("");
   const [actionError, setActionError] = useState("");
   const [marking, setMarking] = useState(false);

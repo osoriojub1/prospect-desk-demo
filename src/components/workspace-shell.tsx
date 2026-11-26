@@ -1,19 +1,20 @@
 "use client";
 
-import { Activity, ChevronRight, ClipboardCheck, FileText, Inbox, ListFilter, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from "lucide-react";
+import { Activity, ChevronRight, ClipboardCheck, FileText, Inbox, LayoutDashboard, ListFilter, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, Plus, SlidersHorizontal } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { researchClient, researchConfigured } from "../lib/research";
-import { routes, signInRoute } from "../lib/routes";
+import { dashboardLabel, leadGenerationLabels, routes, signInRoute } from "../lib/routes";
 import { AppErrorDialog } from "./app-error-dialog";
 import { useResearchSession, useWorkspaceEvents } from "./research-session";
 import { WorkspaceBrand } from "./workspace-brand";
 import { WorkspaceLink, useWorkspaceNavigation } from "./workspace-navigation";
 
 const screens = {
-  search: { label: "Search setup", title: "Search setup", icon: SlidersHorizontal },
-  runStatus: { label: "Lead searches", title: "Lead searches", icon: Activity },
-  prospects: { label: "Prospect review", title: "Prospect review", icon: ListFilter },
+  dashboard: { label: dashboardLabel, title: dashboardLabel, icon: LayoutDashboard },
+  search: { label: leadGenerationLabels.search, title: leadGenerationLabels.search, icon: SlidersHorizontal },
+  runStatus: { label: leadGenerationLabels.runStatus, title: leadGenerationLabels.runStatus, icon: Activity },
+  prospects: { label: leadGenerationLabels.prospects, title: leadGenerationLabels.prospects, icon: ListFilter },
   campaigns: { label: "Campaigns", title: "Outreach campaigns", icon: Megaphone },
   review: { label: "Draft review", title: "Draft review", icon: ClipboardCheck },
   delivery: { label: "Email activity", title: "Email activity", icon: Inbox },
@@ -22,7 +23,8 @@ const screens = {
 
 type Screen = keyof typeof screens;
 
-const groups: { label: string; screens: Screen[] }[] = [
+const groups: { label?: string; screens: Screen[] }[] = [
+  { screens: ["dashboard"] },
   { label: "Lead generation", screens: ["search", "runStatus", "prospects"] },
   { label: "Outreach", screens: ["campaigns", "review", "delivery"] },
   { label: "System", screens: ["logs"] },
@@ -42,7 +44,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [error, setError] = useState("");
   const { session, loading } = useResearchSession();
-  const { unreadEvents, unreadReplies } = useWorkspaceEvents();
+  const { unreadEvents = 0, unreadReplies = 0 } = useWorkspaceEvents();
   const { navigate } = useWorkspaceNavigation();
   const toggleLabel = collapsed ? "Expand sidebar" : "Collapse sidebar";
   const signInPage = pathname.replace(/\/$/, "") === signInRoute.slice(0, -1);
@@ -64,14 +66,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     if (signInPage || loading || !needsSignIn) return;
     const { pathname, search, hash } = window.location;
     const destination = pathname + search + hash;
-    router.replace(destination === routes.search ? signInRoute : `${signInRoute}?next=${encodeURIComponent(destination)}`);
+    router.replace(destination === routes.dashboard ? signInRoute : `${signInRoute}?next=${encodeURIComponent(destination)}`);
   }, [loading, needsSignIn, pathname, router, signInPage]);
 
   useEffect(() => {
-    // Keep links to the earlier hash-based preview working.
-    if (pathname !== "/" || needsSignIn) return;
-    if (window.location.hash === "#prospect-review") router.replace(routes.prospects);
-    if (window.location.hash === "#personalized-outreach") router.replace(routes.review);
+    // Keep older preview links and saved-search edit links working.
+    if (pathname !== routes.dashboard || needsSignIn) return;
+    const { hash, search } = window.location;
+    if (hash === "#prospect-review") router.replace(routes.prospects);
+    else if (hash === "#personalized-outreach") router.replace(routes.review);
+    else if (new URLSearchParams(search).has("run")) router.replace(routes.search + search);
   }, [needsSignIn, pathname, router]);
 
   useEffect(() => {
@@ -94,9 +98,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </div>
         <nav className="workflow-nav" id="workspace-navigation" aria-label="Lead workflow">
           {groups.map((group, index) => (
-            <div className="workflow-group" key={group.label}>
-              <p className="workflow-label sidebar-label" id={`workflow-group-${index}`}>{group.label}</p>
-              <ul aria-labelledby={`workflow-group-${index}`}>
+            <div className="workflow-group" key={group.screens[0]}>
+              {group.label && <p className="workflow-label sidebar-label" id={`workflow-group-${index}`}>{group.label}</p>}
+              <ul aria-labelledby={group.label ? `workflow-group-${index}` : undefined}>
                 {group.screens.map((key) => {
                   const { icon: Icon, label } = screens[key];
                   const count = key === "delivery" ? unreadReplies : key === "logs" ? unreadEvents : 0;
@@ -133,6 +137,11 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         {screen && (
           <div className={outreach || screen === "logs" ? "page-heading outreach-heading" : "page-heading"}>
             <h1 ref={headingRef} tabIndex={-1}>{screens[screen].title}</h1>
+            {screen === "dashboard" && (
+              <WorkspaceLink className="button button-primary" href={routes.search}>
+                <Plus size={16} aria-hidden="true" />New search
+              </WorkspaceLink>
+            )}
             {outreach && (
               <ol className="outreach-steps" role="list" aria-label="Outreach progress">
                 {steps.map((step, index) => (

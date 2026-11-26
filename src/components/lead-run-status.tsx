@@ -128,12 +128,13 @@ function RunProgress({ run, onRetry, retrying }: { run: ResearchRun; onRetry: ()
   const configuration = statusDetails[run.status];
   const { Icon } = configuration;
   const finished = run.status === "completed";
+  const hasResults = finished && run.saved_result_count > 0;
   const failed = run.status === "failed";
   const stage = run.status === "failed" ? -1 : steps.indexOf(run.status);
   const heading = researchRunStatusLabel(run);
   let detail = configuration.detail;
   if (failed) detail = researchFailure(run.failure_code).detail;
-  if (finished && run.result_count === 0) detail = "No companies matched. Adjust your search to broaden the criteria.";
+  if (finished && !hasResults && !run.results_cleared) detail = "No companies matched. Adjust your search to broaden the criteria.";
 
   return (
     <section className="action-card lead-run-progress" aria-labelledby="lead-run-stage">
@@ -142,11 +143,11 @@ function RunProgress({ run, onRetry, retrying }: { run: ResearchRun; onRetry: ()
         <div role="status" aria-atomic="true">
           <h2 id="lead-run-stage">{heading}</h2>
           {detail && <p>{detail}</p>}
-          {finished && run.result_count > 0 && (
+          {hasResults && (
             <ul className="lead-result-counts">
-              <li><strong>{run.result_count}</strong> {run.result_count === 1 ? "company saved" : "companies saved"}</li>
-              <li><strong>{run.contact_count}</strong> {run.contact_count === 1 ? "named contact" : "named contacts"}</li>
-              <li><strong>{run.email_count}</strong> with work email</li>
+              <li><strong>{run.saved_result_count}</strong> {run.saved_result_count === 1 ? "company saved" : "companies saved"}</li>
+              <li><strong>{run.saved_contact_count}</strong> {run.saved_contact_count === 1 ? "named contact" : "named contacts"}</li>
+              <li><strong>{run.saved_email_count}</strong> with work email</li>
             </ul>
           )}
         </div>
@@ -179,7 +180,7 @@ function RunProgress({ run, onRetry, retrying }: { run: ResearchRun; onRetry: ()
             {retrying ? "Starting…" : "Retry search"}
           </button>
         )}
-        {finished && run.result_count > 0 && (
+        {hasResults && (
           <Link className="button button-primary" href={researchHref("prospects", run.id)}>View prospects<ArrowRight size={16} aria-hidden="true" /></Link>
         )}
       </footer>

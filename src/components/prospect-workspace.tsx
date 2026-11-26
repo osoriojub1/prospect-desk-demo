@@ -4,20 +4,29 @@ import { ArrowLeft, ChevronLeft, ChevronRight, ChevronsUpDown, Search, SearchX }
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { stages, type Prospect } from "../lib/prospects";
+import { contactedStages, outreachStatusLabels, stages, type Prospect } from "../lib/prospects";
 import { readResearchProspects, researchConfigured } from "../lib/research";
-import { researchHref } from "../lib/routes";
+import { leadGenerationLabels, researchHref } from "../lib/routes";
 import { AppErrorDialog } from "./app-error-dialog";
-import { CompanyMark, ContactFlag, FitLabel, ProspectReview, StageBadge, TriageBadge } from "./prospect-review";
+import { CompanyMark, ContactFlag, ProspectReview, StageBadge, TriageBadge } from "./prospect-review";
 import { useResearchSession } from "./research-session";
 import { SourceDialog } from "./source-dialog";
 
 const pageSize = 8;
-const stageFilters = ["All prospects", ...stages] as const;
+const prospectFilters = ["All prospects", ...stages, "Do not contact"] as const;
 const companyOrder = new Intl.Collator("en-AU", { numeric: true, sensitivity: "base" });
 
-type StageFilter = (typeof stageFilters)[number];
+type ProspectFilter = (typeof prospectFilters)[number];
 type Sort = "ascending" | "descending";
+
+function matchesFilter(prospect: Prospect, filter: ProspectFilter) {
+  switch (filter) {
+    case "All prospects": return true;
+    case "Do not contact": return prospect.doNotContact;
+    case "Contacted": return contactedStages.includes(prospect.stage);
+    default: return prospect.stage === filter;
+  }
+}
 
 export function ProspectWorkspace() {
   const runId = useSearchParams().get("run");
@@ -49,7 +58,7 @@ function LiveProspects({ runId }: { runId: string | null }) {
 
   return (
     <>
-      {runId && <div className="lead-run-nav"><Link className="text-link" href={researchHref("runStatus", runId)}><ArrowLeft size={16} aria-hidden="true" />Lead run status</Link></div>}
+      {runId && <div className="lead-run-nav"><Link className="text-link" href={researchHref("runStatus", runId)}><ArrowLeft size={16} aria-hidden="true" />Search details</Link></div>}
       {prospects ? (
         <ProspectList prospects={prospects} selectedId={selectedId} onSelect={setSelectedId} />
       ) : (
@@ -68,7 +77,11 @@ function ProspectList({ prospects, selectedId, onSelect }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const [stage, setStage] = useState<StageFilter>("All prospects");
+  const searchParams = useSearchParams();
+  const status = searchParams.get("status");
+  const filter = searchParams.get("do-not-contact") === "1"
+    ? "Do not contact"
+    : stages.find((value) => value.toLowerCase() === status) ?? "All prospects";
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>();
   const [page, setPage] = useState(1);
@@ -77,12 +90,10 @@ function ProspectList({ prospects, selectedId, onSelect }: {
 
   const selected = prospects.find((prospect) => prospect.id === selectedId);
   const searchText = query.trim().toLowerCase();
-  const matches = prospects.filter((prospect) => {
-    const matchesStage = stage === "All prospects" || prospect.stage === stage;
-    const matchesQuery = [prospect.name, prospect.domain, prospect.location]
-      .some((value) => value.toLowerCase().includes(searchText));
-    return matchesStage && matchesQuery;
-  });
+  const matches = prospects.filter((prospect) =>
+    matchesFilter(prospect, filter) &&
+    [prospect.name, prospect.domain, prospect.location].some((value) => value.toLowerCase().includes(searchText)),
+  );
 
   if (sort) {
     const direction = sort === "ascending" ? 1 : -1;
@@ -101,8 +112,13 @@ function ProspectList({ prospects, selectedId, onSelect }: {
     if (focusTarget instanceof HTMLElement) focusTarget.focus();
   }
 
-  function filterStage(value: StageFilter) {
-    setStage(value);
+  function applyFilter(nextFilter: ProspectFilter) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("status");
+    url.searchParams.delete("do-not-contact");
+    if (nextFilter === "Do not contact") url.searchParams.set("do-not-contact", "1");
+    else if (nextFilter !== "All prospects") url.searchParams.set("status", nextFilter.toLowerCase());
+    window.history.replaceState(null, "", url);
     setPage(1);
   }
 
@@ -118,20 +134,21 @@ function ProspectList({ prospects, selectedId, onSelect }: {
       <div className={selected ? "workspace-grid has-review" : "workspace-grid"}>
         <section className="lead-list">
           <div className="list-toolbar">
-            <div className="stage-filters" role="group" aria-label="Lead stage">
-              {stageFilters.map((value) => {
+            <div className="stage-filters" role="group" aria-label="Prospect filters">
+              {prospectFilters.map((value) => {
                 const count = value === "All prospects"
                   ? prospects.length
-                  : prospects.filter((prospect) => prospect.stage === value).length;
+                  : prospects.filter((prospect) => matchesFilter(prospect, value)).length;
+                const label = value === "All prospects" || value === "Do not contact" ? value : outreachStatusLabels[value];
                 return (
                   <button
                     className="stage-filter"
                     key={value}
                     type="button"
-                    aria-pressed={stage === value}
-                    onClick={() => filterStage(value)}
+                    aria-pressed={filter === value}
+                    onClick={() => applyFilter(value)}
                   >
-                    {value}
+                    {label}
                     <span className="filter-count">{count}</span>
                   </button>
                 );
@@ -152,7 +169,7 @@ function ProspectList({ prospects, selectedId, onSelect }: {
           </div>
 
           {visibleProspects.length > 0 ? (
-            <div className="table-scroll" role="region" aria-label="Saved prospects" tabIndex={0}>
+            <div className="table-scroll" role="region" aria-label={leadGenerationLabels.prospects} tabIndex={0}>
               <table>
                 <caption className="sr-only">Prospects</caption>
                 <thead>
@@ -165,8 +182,7 @@ function ProspectList({ prospects, selectedId, onSelect }: {
                       </button>
                     </th>
                     <th scope="col">Location</th>
-                    <th scope="col">AI fit</th>
-                    <th scope="col">Stage</th>
+                    <th scope="col">Outreach status</th>
                     <th scope="col">Reply outcome</th>
                     <th scope="col">Do not contact</th>
                   </tr>
@@ -189,7 +205,6 @@ function ProspectList({ prospects, selectedId, onSelect }: {
                         </button>
                       </th>
                       <td className="location-cell">{prospect.location}</td>
-                      <td><FitLabel fit={prospect.fit} /></td>
                       <td><StageBadge stage={prospect.stage} /></td>
                       <td>{prospect.triage ? <TriageBadge triage={prospect.triage} /> : <span className="empty-value">—</span>}</td>
                       <td>{prospect.doNotContact ? <ContactFlag label="Flagged" /> : <span className="empty-value">—</span>}</td>
@@ -201,10 +216,10 @@ function ProspectList({ prospects, selectedId, onSelect }: {
           ) : (
             <div className="empty-list">
               <span className="empty-icon"><SearchX size={23} aria-hidden="true" /></span>
-              <p>{prospects.length ? "No prospects match" : "No saved prospects yet"}</p>
+              <p>{prospects.length ? "No prospects match" : "No prospects yet"}</p>
               {prospects.length > 0 && <button className="button button-secondary" type="button" onClick={() => {
                 setQuery("");
-                filterStage("All prospects");
+                applyFilter("All prospects");
               }}>
                 Clear filters
               </button>}

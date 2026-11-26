@@ -18,16 +18,18 @@ export type ResearchRun = {
   criteria: SearchCriteria;
   status: RunStatus;
   failure_code: string | null;
-  result_count: number;
-  contact_count: number;
-  email_count: number;
+  saved_result_count: number;
+  saved_contact_count: number;
+  saved_email_count: number;
+  results_cleared: boolean;
   created_at: string;
   started_at: string | null;
   last_checked_at: string | null;
   finished_at: string | null;
 };
 
-const runFields = "id,criteria,status,failure_code,result_count,contact_count,email_count,created_at,started_at,last_checked_at,finished_at";
+const runSummaryFields = "id,criteria,status,saved_result_count,results_cleared,created_at";
+const runFields = `${runSummaryFields},failure_code,saved_contact_count,saved_email_count,started_at,last_checked_at,finished_at`;
 const runPageSize = 10;
 const runIdPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const runStatusLabels: Record<RunStatus, string> = {
@@ -38,7 +40,7 @@ const runStatusLabels: Record<RunStatus, string> = {
   failed: "Failed",
 };
 
-export type ResearchRunListItem = Pick<ResearchRun, "id" | "criteria" | "status" | "result_count" | "created_at">;
+export type ResearchRunListItem = Pick<ResearchRun, "id" | "criteria" | "status" | "saved_result_count" | "results_cleared" | "created_at">;
 
 export function isResearchRunId(id: string) {
   return runIdPattern.test(id);
@@ -48,8 +50,9 @@ export function isActiveResearchRun(status: RunStatus) {
   return status !== "completed" && status !== "failed";
 }
 
-export function researchRunStatusLabel(run: Pick<ResearchRun, "status" | "result_count">) {
-  return run.status === "completed" && run.result_count === 0 ? "No matches" : runStatusLabels[run.status];
+export function researchRunStatusLabel(run: Pick<ResearchRun, "status" | "saved_result_count" | "results_cleared">) {
+  if (run.results_cleared) return "Results cleared";
+  return run.status === "completed" && run.saved_result_count === 0 ? "No matches" : runStatusLabels[run.status];
 }
 
 const failures: Record<string, { source: string; detail: string }> = {
@@ -82,25 +85,25 @@ export async function startResearch(input: { requestId: string; criteria: Search
 }
 
 export async function readResearchRun(id: string) {
-  const { data, error } = await researchClient().from("research_runs").select(runFields).eq("id", id)
+  const { data, error } = await researchClient().from("research_run_summaries").select(runFields).eq("id", id)
     .maybeSingle<ResearchRun>();
-  if (error) throw new Error("Could not load the lead run. Try again.");
+  if (error) throw new Error("Could not load the search. Try again.");
   return data;
 }
 
 export async function readResearchRuns(page: number) {
   const start = page * runPageSize;
-  const { data, error } = await researchClient().from("research_runs")
-    .select("id,criteria,status,result_count,created_at")
+  const { data, error } = await researchClient().from("research_run_summaries")
+    .select(runSummaryFields).eq("results_cleared", false)
     .order("created_at", { ascending: false }).order("id", { ascending: false })
     .range(start, start + runPageSize).returns<ResearchRunListItem[]>();
-  if (error) throw new Error("Could not load lead runs. Try again.");
+  if (error) throw new Error("Could not load searches. Try again.");
   return { runs: data.slice(0, runPageSize), hasMore: data.length > runPageSize };
 }
 
 export async function readCompletedResearchRuns() {
-  const { data, error } = await researchClient().from("research_runs")
-    .select("id,criteria,created_at").eq("status", "completed").gt("result_count", 0)
+  const { data, error } = await researchClient().from("research_run_summaries")
+    .select("id,criteria,created_at").eq("status", "completed").gt("saved_result_count", 0)
     .order("created_at", { ascending: false }).order("id", { ascending: false })
     .returns<Pick<ResearchRun, "id" | "criteria" | "created_at">[]>();
   if (error) throw new Error("Could not load lead searches. Try again.");

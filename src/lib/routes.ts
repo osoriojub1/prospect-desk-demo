@@ -1,5 +1,6 @@
 export const routes = {
-  search: "/",
+  dashboard: "/",
+  search: "/research/",
   runStatus: "/research/status/",
   prospects: "/prospects/",
   campaigns: "/outreach/campaigns/",
@@ -8,11 +9,19 @@ export const routes = {
   logs: "/system/logs/",
 } as const;
 
+export const dashboardLabel = "Dashboard";
+
+export const leadGenerationLabels = {
+  search: "Find companies",
+  runStatus: "Search activity",
+  prospects: "Prospects",
+} as const;
+
 export const signInRoute = "/sign-in/";
 
 export function workspaceDestination(next: string | null) {
   const path = next?.split(/[?#]/, 1)[0];
-  return next && Object.values(routes).some((route) => route === path) ? next : routes.search;
+  return next && Object.values(routes).some((route) => route === path) ? next : routes.dashboard;
 }
 
 export function researchHref(page: "search" | "runStatus" | "prospects", runId: string) {

@@ -36,7 +36,7 @@ export const discoveryCriteria = editableSearchCriteria({
   exclusions: ["Residential only", "Directory listings"],
 });
 
-export const atlantaSearch: EditableSearchCriteria = {
+const atlantaSearch: EditableSearchCriteria = {
   ...discoveryCriteria,
   presetId: atlantaPresetId,
   industry: "Commercial property management",
@@ -45,6 +45,22 @@ export const atlantaSearch: EditableSearchCriteria = {
   preferredSignals: "Manages multiple local sites",
   contactRoles: "Local property management lead\nOperations contact\nFounder or CEO",
 };
+
+// The criteria travel through the existing search API without a new preset ID.
+const warehouseSearch: EditableSearchCriteria = {
+  ...discoveryCriteria,
+  industry: "Warehousing and fulfillment services",
+  location: "Metro Atlanta",
+  requiredSignals: "Provides warehousing or order fulfillment services\nOperates a warehouse or fulfillment center in Metro Atlanta",
+  preferredSignals: "Operates multiple local warehouses or fulfillment centers",
+  contactRoles: "Facilities manager\nWarehouse operations manager\nFounder or CEO",
+  exclusions: ["Directory listings", "Missing work email"],
+};
+
+export const searchPresets = [
+  { name: "Atlanta property manager", criteria: atlantaSearch },
+  { name: "Atlanta warehouse", criteria: warehouseSearch },
+];
 
 export function searchRequest(criteria: EditableSearchCriteria): SearchCriteria {
   const required = searchLines(criteria.requiredSignals).join("\n");

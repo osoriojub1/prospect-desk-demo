@@ -3,45 +3,49 @@
 import { MailPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { campaignLimit, readCampaignAudience, startDraftCampaign } from "../lib/outreach";
-import { readCompletedResearchRuns, researchConfigured } from "../lib/research";
+import { researchConfigured } from "../lib/research";
 import { campaignHref, routes } from "../lib/routes";
 import { atlantaOffer, atlantaPresetId } from "../lib/search-criteria";
 import { activityDate, getCampaignAudience, type CampaignFilters } from "../lib/workspace";
 import { AppErrorDialog } from "./app-error-dialog";
 import { useResearchSession } from "./research-session";
+import { useOutreachSnapshot } from "./use-outreach-snapshot";
+
+const audienceTables = ["research_runs", "outreach_recipients", "outreach_send_items", "outreach_replies"] as const;
+const allCompanies: CampaignFilters = { industry: "", location: "" };
 
 export function OutreachCampaigns() {
   const { session } = useResearchSession();
   if (!researchConfigured) return <p className="action-card action-content">Connect the workspace to see eligible prospects.</p>;
-  return session && <CampaignSetup key={session.user.id} />;
+  return session && <CampaignSetup key={session.user.id} ownerId={session.user.id} />;
 }
 
-function CampaignSetup() {
+function CampaignSetup({ ownerId }: { ownerId: string }) {
   const router = useRouter();
-  const [searches, setSearches] = useState<Awaited<ReturnType<typeof readCompletedResearchRuns>>>();
   const [runId, setRunId] = useState("");
-  const [savedAudience, setSavedAudience] = useState<Awaited<ReturnType<typeof readCampaignAudience>> & { runId: string }>();
-  const [filters, setFilters] = useState<CampaignFilters>({ industry: "", location: "" });
+  const [filters, setFilters] = useState(allCompanies);
   const [offer, setOffer] = useState("");
-  const [reload, setReload] = useState(0);
-  const [error, setError] = useState<{ title: string; message: string; retry?: boolean }>();
-  const [failedAudience, setFailedAudience] = useState<string>();
+  const [draftError, setDraftError] = useState("");
+  const [dismissedLoadError, setDismissedLoadError] = useState("");
   const [excludedIds, setExcludedIds] = useState(() => new Set<string>());
   const [submitting, setSubmitting] = useState(false);
   const request = useRef<{ fingerprint: string; id: string } | null>(null);
   const selectAll = useRef<HTMLInputElement>(null);
 
-  const current = savedAudience?.runId === runId ? savedAudience : undefined;
+  const loadAudience = useCallback(async () => ({ ...await readCampaignAudience(runId || null), runId }), [runId]);
+  const { snapshot, error: loadError, refresh } = useOutreachSnapshot(ownerId, audienceTables, loadAudience);
+  const searches = snapshot?.searches ?? [];
+  const runUnavailable = Boolean(runId && snapshot?.runId === runId && !searches.some((search) => search.id === runId));
+  const current = !loadError && !runUnavailable && snapshot?.runId === runId ? snapshot : undefined;
   const saved = current?.prospects ?? [];
-  const industries = [...new Set(saved.map((prospect) => prospect.industry))].sort();
-  const locations = [...new Set(saved.map((prospect) => prospect.location))].sort();
-  const campaignFilters = {
-    industry: industries.includes(filters.industry) ? filters.industry : "",
-    location: locations.includes(filters.location) ? filters.location : "",
-  };
-  const { eligible, excluded } = getCampaignAudience(saved, current?.reserved ?? new Set(), campaignFilters);
+  const campaignByProspect = current?.campaignByProspect ?? new Map();
+  const audience = getCampaignAudience(saved, campaignByProspect, allCompanies);
+  const industries = [...new Set(audience.eligible.map(({ prospect }) => prospect.industry))].sort();
+  const locations = [...new Set(audience.eligible.map(({ prospect }) => prospect.location))].sort();
+  const { eligible, excluded, existingDrafts } = filters.industry || filters.location
+    ? getCampaignAudience(saved, campaignByProspect, filters) : audience;
   const selected = eligible.filter(({ prospect }) => !excludedIds.has(prospect.id));
   const allSelected = selected.length === eligible.length;
   const partiallySelected = selected.length > 0 && !allSelected;
@@ -50,49 +54,22 @@ function CampaignSetup() {
     excluded.missingEmail && excluded.missingEmail + " without a published work email",
     excluded.contacted && excluded.contacted + " already contacted",
     excluded.optedOut && excluded.optedOut + " marked Do not contact",
-    excluded.reserved && excluded.reserved + " in another campaign",
   ].filter(Boolean).join(" · ");
 
   useEffect(() => {
     if (selectAll.current) selectAll.current.indeterminate = partiallySelected;
   }, [partiallySelected]);
 
-  useEffect(() => {
-    let active = true;
-    void readCompletedResearchRuns().then((result) => {
-      if (active) setSearches(result);
-    }, (reason: Error) => {
-      if (active) setError({ title: "Couldn’t load lead searches", message: reason.message, retry: true });
-    });
-    return () => { active = false; };
-  }, [reload]);
-
-  useEffect(() => {
-    let active = true;
-    void readCampaignAudience(runId || null).then((results) => {
-      if (active) {
-        setSavedAudience({ ...results, runId });
-        setFailedAudience(undefined);
-      }
-    }, (reason: Error) => {
-      if (active) {
-        setFailedAudience(runId);
-        setError({ title: "Couldn’t load the audience", message: reason.message, retry: true });
-      }
-    });
-    return () => { active = false; };
-  }, [reload, runId]);
-
   function retryLoad() {
-    setFailedAudience(undefined);
-    setReload((value) => value + 1);
+    setDismissedLoadError("");
+    void refresh();
   }
 
   function chooseRun(id: string) {
     setRunId(id);
-    setFilters({ industry: "", location: "" });
+    setFilters(allCompanies);
     setExcludedIds(new Set());
-    const search = searches?.find((entry) => entry.id === id);
+    const search = searches.find((entry) => entry.id === id);
     if (search?.criteria.presetId === atlantaPresetId) setOffer((value) => value.trim() ? value : atlantaOffer);
   }
 
@@ -113,7 +90,7 @@ function CampaignSetup() {
     const name = String(new FormData(event.currentTarget).get("campaignName") ?? "").trim();
     if (!name || !offer.trim()) return;
 
-    const input = { name, offer: offer.trim(), ...campaignFilters, runId: runId || undefined, prospectIds: selected.map(({ prospect }) => prospect.id).sort() };
+    const input = { name, offer: offer.trim(), ...filters, runId: runId || undefined, prospectIds: selected.map(({ prospect }) => prospect.id).sort() };
     const fingerprint = JSON.stringify(input);
     if (request.current?.fingerprint !== fingerprint) request.current = { fingerprint, id: crypto.randomUUID() };
 
@@ -123,8 +100,8 @@ function CampaignSetup() {
       router.push(campaignHref("review", id));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Try again in a moment.";
-      setError({ title: "Couldn’t generate drafts", message });
-      if (message.startsWith("The audience changed.")) setReload((value) => value + 1);
+      setDraftError(message);
+      if (message.startsWith("The audience changed.") || message.startsWith("Choose an available lead search.")) void refresh();
       setSubmitting(false);
     }
   }
@@ -148,9 +125,10 @@ function CampaignSetup() {
             <div className="campaign-fields campaign-filters">
               <div className="form-field">
                 <label htmlFor="campaign-search">Lead search</label>
-                <select id="campaign-search" value={runId} onChange={(event) => chooseRun(event.target.value)} disabled={!searches}>
-                  <option value="">All searches</option>
-                  {searches?.map((search) => (
+                <select id="campaign-search" value={runId} onChange={(event) => chooseRun(event.target.value)} disabled={!searches.length || Boolean(loadError)}>
+                  <option value="">{loadError ? "Searches unavailable" : !snapshot ? "Loading searches…" : searches.length ? "All searches" : "No saved searches"}</option>
+                  {runUnavailable && <option value={runId} disabled>Search no longer available</option>}
+                  {searches.map((search) => (
                     <option key={search.id} value={search.id}>
                       {search.criteria.industry} · {search.criteria.location} · {activityDate.format(new Date(search.created_at))}
                     </option>
@@ -159,17 +137,19 @@ function CampaignSetup() {
               </div>
               <div className="form-field">
                 <label htmlFor="campaign-industry">Industry</label>
-                <select id="campaign-industry" value={campaignFilters.industry} disabled={!current}
+                <select id="campaign-industry" value={filters.industry} disabled={!industries.length}
                   onChange={(event) => setFilters({ ...filters, industry: event.target.value })}>
                   <option value="">All industries</option>
+                  {filters.industry && !industries.includes(filters.industry) && <option disabled>{filters.industry}</option>}
                   {industries.map((industry) => <option key={industry}>{industry}</option>)}
                 </select>
               </div>
               <div className="form-field">
                 <label htmlFor="campaign-location">Location</label>
-                <select id="campaign-location" value={campaignFilters.location} disabled={!current}
+                <select id="campaign-location" value={filters.location} disabled={!locations.length}
                   onChange={(event) => setFilters({ ...filters, location: event.target.value })}>
                   <option value="">All locations</option>
+                  {filters.location && !locations.includes(filters.location) && <option disabled>{filters.location}</option>}
                   {locations.map((location) => <option key={location}>{location}</option>)}
                 </select>
               </div>
@@ -177,14 +157,23 @@ function CampaignSetup() {
           </fieldset>
 
           <p className="audience-count" role="status">
-            {!current ? (failedAudience === runId ? "Audience unavailable" : "Loading saved prospects…") :
+            {loadError ? "Audience unavailable" : runUnavailable ? "This search is no longer available." : !current ? "Loading saved prospects…" :
               eligible.length ? eligible.length + " eligible " + (eligible.length === 1 ? "company" : "companies") :
-                saved.length ? "No eligible companies match these filters." : "No saved companies yet."}
+                audience.eligible.length ? "No eligible companies match these filters." : "No companies available for new drafts."}
             {eligible.length > 0 && <span> · {selected.length} selected</span>}
           </p>
-          {!current && failedAudience === runId && <button className="button button-secondary" type="button" onClick={retryLoad}>Try again</button>}
+          {loadError && <button className="button button-secondary" type="button" onClick={retryLoad}>Try again</button>}
           {excludedSummary && <p className="field-hint audience-excluded">{excludedSummary}</p>}
-          {current && !saved.length && !runId && <Link className="text-link" href={routes.search}>Find companies</Link>}
+          {existingDrafts.map(({ campaign, count }) => (
+            <p className="field-hint audience-excluded" key={campaign.id}>
+              {count} {count === 1 ? "company" : "companies"} in{" "}
+              <Link className="text-link" href={campaignHref("review", campaign.id)}>
+                {campaign.name} · {activityDate.format(new Date(campaign.created_at))}
+              </Link>
+            </p>
+          ))}
+          {(current || runUnavailable) && !audience.eligible.length && !audience.existingDrafts.length && !loadError &&
+            <Link className="text-link" href={routes.search}>Find companies</Link>}
           {eligible.length > 0 && (
             <div className="table-scroll audience-roster" role="region" aria-labelledby="audience-caption" tabIndex={0}>
               <table className="outreach-table audience-table">
@@ -233,8 +222,10 @@ function CampaignSetup() {
           </button>
         </footer>
       </form>
-      <AppErrorDialog title={error?.title} message={error?.message ?? ""} onClose={() => setError(undefined)}
-        onRetry={error?.retry ? retryLoad : undefined} />
+      <AppErrorDialog title={draftError ? "Couldn’t generate drafts" : "Couldn’t load the audience"}
+        message={draftError || (loadError === dismissedLoadError ? "" : loadError)}
+        onClose={() => { if (draftError) setDraftError(""); else setDismissedLoadError(loadError); }}
+        onRetry={draftError ? undefined : retryLoad} />
     </div>
   );
 }

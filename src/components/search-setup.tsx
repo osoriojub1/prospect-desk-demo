@@ -2,8 +2,8 @@ import { ArrowRight, ChevronRight, Search } from "lucide-react";
 import Link from "next/link";
 import { useId, useState, type FormEvent } from "react";
 import { buyingSignals, exclusions, minimumFits, resultLimits, type SearchCriteria } from "../lib/prospects";
-import { routes } from "../lib/routes";
-import { atlantaSearch, fitLabels, searchLines, searchRequest, type EditableSearchCriteria } from "../lib/search-criteria";
+import { leadGenerationLabels, routes } from "../lib/routes";
+import { fitLabels, searchLines, searchPresets, searchRequest, type EditableSearchCriteria } from "../lib/search-criteria";
 import { AppErrorDialog } from "./app-error-dialog";
 
 function Choices<Value extends string>({ values, selected, onChange }: {
@@ -41,6 +41,9 @@ export function SearchSetup({ criteria, onChange, onSearch }: {
 }) {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
+  const [appliedPreset, setAppliedPreset] = useState(() =>
+    criteria.presetId && searchPresets.find((preset) => preset.criteria.presetId === criteria.presetId)?.name,
+  );
   const requiredCount = searchLines(criteria.requiredSignals).length;
   const activeFilters = 1 + Number(criteria.minimumFit !== "Any fit") + criteria.exclusions.length
     + Number(Boolean(criteria.excludedDomains.trim())) + Number(Boolean(criteria.excludedKeywords.trim()));
@@ -71,11 +74,16 @@ export function SearchSetup({ criteria, onChange, onSearch }: {
       <section className="action-card action-content">
         <fieldset className="criteria-group" disabled={searching}>
           <legend className="sr-only">Target market</legend>
-          <div className="search-preset">
-            <button className="button button-secondary" type="button" onClick={() => onChange(atlantaSearch)}>
-              Use Atlanta property manager search
-            </button>
-            <span className="field-hint" role="status">{criteria.presetId === atlantaSearch.presetId ? "Atlanta preset applied" : ""}</span>
+          <div className="search-preset" role="group" aria-label="Search presets">
+            {searchPresets.map((preset) => (
+              <button className="button button-secondary" type="button" key={preset.name} onClick={() => {
+                onChange(preset.criteria);
+                setAppliedPreset(preset.name);
+              }}>
+                Use {preset.name} search
+              </button>
+            ))}
+            <span className="field-hint" role="status">{appliedPreset && `${appliedPreset} preset applied`}</span>
           </div>
           <div className="target-fields">
             <div className="form-field">
@@ -192,10 +200,10 @@ export function SearchSetup({ criteria, onChange, onSearch }: {
       </details>
 
       <div className="criteria-footer">
-        <Link className="text-link" href={routes.runStatus}>Lead searches<ArrowRight size={14} aria-hidden="true" /></Link>
+        <Link className="text-link" href={routes.runStatus}>{leadGenerationLabels.runStatus}<ArrowRight size={14} aria-hidden="true" /></Link>
         <button className="button button-primary" type="submit" disabled={searching}>
           <Search size={17} aria-hidden="true" />
-          {searching ? "Starting search…" : "Find companies"}
+          {searching ? "Starting search…" : leadGenerationLabels.search}
         </button>
       </div>
       <AppErrorDialog title="Couldn’t start search" message={error} onClose={() => setError("")} onRetry={() => void runSearch()} />

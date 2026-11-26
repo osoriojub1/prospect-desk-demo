@@ -8,7 +8,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { emailKindLabels, outreachDate, type Prospect, type Stage, type Triage } from "../lib/prospects";
+import { emailKindLabels, outreachDate, outreachStatusLabels, type Prospect, type Stage, type Triage } from "../lib/prospects";
 import { EvidenceExcerpt } from "./evidence-excerpt";
 
 export function CompanyMark({ prospect }: { prospect: Prospect }) {
@@ -23,7 +23,7 @@ export function StageBadge({ stage }: { stage: Stage }) {
   return (
     <span className={`badge stage-${stage.toLowerCase()}`}>
       <span className="badge-dot" aria-hidden="true" />
-      {stage}
+      {outreachStatusLabels[stage]}
     </span>
   );
 }
